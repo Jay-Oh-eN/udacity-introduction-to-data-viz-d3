@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="http://d3js.org/d3.v3.min.js"></script>
+    <style>
+      circle {
+        fill: orange;
+        stroke: black;
+        stroke-width: 0.7;
+        opacity: 0.7;
+      }
+
+      div.years_buttons {
+        position: fixed;
+        top: 5px;
+        left: 50px;
+      }
+
+      div.years_buttons div {
+        background-color: rgb(251, 201, 127);
+        padding: 3px;
+        margin: 7px;
+      }
+    </style>
+
+    <script type="text/javascript">
+    
+function draw(geo_data) {
+    /*
+    D3.js setup code
+    */
+
+    "use strict";
+    var margin = 75,
+        width = 1400 - margin,
+        height = 600 - margin;
+
+    var radius = 3,
+        multiplier = 2;
+
+    var years = []
+
+    for (var i = 1930; i < 2015; i += 4) {
+        if(i !== 1942 && i !== 1946){
+           years.push(i);
+      }
+    }
+
+    d3.select("body")
+      .append('h2')
+      .attr('id', 'year_label');
+
+    var svg = d3.select("body")
+        .append("svg")
+        .attr("width", width + margin)
+        .attr("height", height + margin)
+        .append('g')
+        .attr('class', 'map');
+
+    var buttons = d3.select("body")
+      .append("div")
+      .attr("class", "years_buttons")
+      .selectAll("div")
+      .data(years)
+      .enter()
+      .append("div")
+      .text(function(d) {
+         return d;
+      });
+
+    var projection = d3.geo.mercator()
+                           .scale(150)
+                           .translate([width / 2, height / 1.5]);
+
+    var path = d3.geo.path()
+                     .projection(projection);
+
+    var map = svg.selectAll('path')
+                 .data(geo_data.features)
+                 .enter()
+                 .append('path')
+                 .attr('d', path)
+                 .style('fill', 'lightBlue')
+                 .style('stroke', 'black')
+                 .style('stroke-width', 0.5);
+
+    function find_country(name) {
+        // switch (name) {
+        //     case "England":
+        //         break;
+        //     case "West Germany":
+        //         break;
+        //     case "USA":
+        //         break;
+        //     case "South Korea/Japan":
+        //         break;
+        // }
+
+        for (var i = 0; i < geo_data.features.length; i++) {
+            var current_object = geo_data.features[i];
+            if (current_object.properties.name == name) {
+                return current_object;
+            }
+        }
+
+        console.log(name);
+        return null;
+    };
+
+
+    function plot_points(data) {
+      debugger;
+        data.forEach(function(d) {
+        find_country(d['home']);
+    });
+
+        function sum_year(leaves) {
+            var sum = d3.sum(leaves, function(d) {
+                                return d['attendance'];
+                            });
+
+            // convert long/lat into pixel value
+            var coords = leaves.map(function(d) {
+                return projection([+d.long, +d.lat]);
+            });
+
+            // find mean longitude pixel for games
+            var center_long = d3.mean(coords, function(d) {
+                return d[0];
+            });
+
+            // find mean latitude pixel for games
+            var center_lat = d3.mean(coords, function(d) {
+                return d[1];
+            });
+
+            // find all the countries that participated
+            var teams = d3.set()
+
+            leaves.forEach(function(d) {
+                teams.add(d['team1']);
+                teams.add(d['team2']);
+            });
+            
+            return {
+                'attendance' : sum,
+                'x' : center_long,
+                'y' : center_lat,
+                'teams' : teams.values()
+             };
+        };
+
+        var nested = d3.nest()
+                       .key(function(d) { 
+                            var month_year = new Date(d['date'].getUTCFullYear(), 6, 15);
+                            return month_year;
+                        })
+                       .rollup(sum_year)
+                       .entries(data);
+
+        var attendance_extent = d3.extent(nested, function(d) {
+            return d.values['attendance'];
+        });
+
+        var radius = d3.scale.sqrt()
+                       .domain(attendance_extent)
+                       .range([3, 15]);
+
+          svg.append("g")
+             .attr("class", "bubble")
+             .selectAll("circle")
+             .data(nested.sort(function (a,b) {
+                  return b.values['attendance'] - a.values['attendance']
+             }), key_func)
+             .enter()
+             .append("circle")
+             .attr("cx", function(d) { return d.values['x']; })
+             .attr("cy", function(d) { return d.values['y']; })
+             .attr("r", function(d) { return radius(d.values['attendance']); });
+
+    function key_func(d) {
+        return d['key'];
+    };
+
+    function update(year) {
+        var filtered = nested.filter(function(d) {
+            return new Date(d['key']).getUTCFullYear() === year;
+        });
+        
+        d3.select('#year_label')
+          .text(year);
+
+        var countries = filtered[0].values['teams']
+
+        var circles = svg.selectAll('circle')
+           .data(filtered, key_func);
+        
+        debugger;
+
+        circles.exit().remove();
+
+        circles.enter()
+               .append("circle")
+               .transition()
+               .duration(500)
+               .attr("cx", function(d) { return d.values['x']; })
+               .attr("cy", function(d) { return d.values['y']; })
+               .attr("r", function(d) { return radius(d.values['attendance']); })
+
+        svg.selectAll('path')
+           .transition()
+           .duration(500)
+           .style('fill', function (d) {
+              if (countries.indexOf(d.properties.name) !== -1) {
+                  return "lightBlue";
+              } else {
+                return "white";
+              }
+           })
+           .style('stroke', function (d) {
+              if (countries.indexOf(d.properties.name) !== -1) {
+                  return "lightBlue";
+              } else {
+                return "white";
+              }
+           });
+           
+    };
+
+    buttons.on("click", function(d) {
+      debugger;
+        d3.select(".years_buttons")
+          .selectAll("div")
+          .transition()
+          .duration(500)
+          .style("color", "black")
+          .style("background", 'rgb(251, 201, 127)');
+
+        d3.select(this)
+          .transition()
+          .duration(500)
+          .style("background", "lightBlue")
+          .style("color", "white");
+
+          update(d);
+
+    });
+
+    var year_idx = 0;
+
+    // var year_interval = setInterval(function(){
+    //   update(years[year_idx]);
+
+    //   year_idx++;
+
+    //   if(year_idx >= years.length) {
+    //      clearInterval(year_interval);
+    //   }
+    // }, 1000);
+  };
+
+    var format = d3.time.format("%d-%m-%Y (%H:%M h)");
+
+    d3.tsv("world_cup_geo.tsv", function(d) {
+        var base = 'http://www.linguasport.com/futbol/internacional/mundial/';
+        d['attendance'] = +d["attendance"];
+        d['date'] = format.parse(d['date']);
+        d['url'] = d['url']
+        return d;
+    }, plot_points);
+    // Draw a map!
+
+};
+      </script>
+  </head>
+<body>
+  <script type="text/javascript">
+  /*
+    Use D3 (not dimple.js) to load the TSV file
+    and pass the contents of it to the draw function
+    */
+d3.json("world_countries.json", draw);
+
+  </script>
+  <
+</body>
+</html>
